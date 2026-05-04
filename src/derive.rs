@@ -35,6 +35,7 @@ pub fn derive_candidates(input: &PuzzleInput) -> Result<Vec<CandidateAnswer>> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     let max_len = MAX_FILL_LEN.min(input.width.max(input.height));
+    let max_tokens = input.max_tokens;
 
     for (track_index, track) in input.tracks.iter().enumerate() {
         for custom in &track.custom {
@@ -48,6 +49,7 @@ pub fn derive_candidates(input: &PuzzleInput) -> Result<Vec<CandidateAnswer>> {
             SourceKind::Title,
             &track.name,
             max_len,
+            max_tokens,
         );
         add_source_candidates(
             &mut out,
@@ -57,6 +59,7 @@ pub fn derive_candidates(input: &PuzzleInput) -> Result<Vec<CandidateAnswer>> {
             SourceKind::Artist,
             &track.artist,
             max_len,
+            max_tokens,
         );
         if let Some(album) = &track.album {
             add_source_candidates(
@@ -67,6 +70,7 @@ pub fn derive_candidates(input: &PuzzleInput) -> Result<Vec<CandidateAnswer>> {
                 SourceKind::Album,
                 album,
                 max_len,
+                max_tokens,
             );
         }
         for snippet in &track.snippets {
@@ -78,6 +82,7 @@ pub fn derive_candidates(input: &PuzzleInput) -> Result<Vec<CandidateAnswer>> {
                 SourceKind::Snippet,
                 snippet,
                 max_len,
+                max_tokens,
             );
         }
     }
@@ -112,8 +117,8 @@ fn apply_custom_overrides(candidates: &mut [CandidateAnswer], input: &PuzzleInpu
         .collect::<HashMap<_, _>>();
 
     for candidate in candidates.iter_mut() {
-        if let Some(clue) = custom_by_track_and_answer
-            .get(&(candidate.track_index, candidate.normalized.clone()))
+        if let Some(clue) =
+            custom_by_track_and_answer.get(&(candidate.track_index, candidate.normalized.clone()))
         {
             candidate.source_kind = SourceKind::Custom;
             candidate.custom_clue = Some(clue.clone());
@@ -143,7 +148,8 @@ fn apply_priority_adjustments(candidates: &mut [CandidateAnswer]) {
             .unwrap_or(1);
         candidate.ambiguity_count = ambiguity_count;
         candidate.quality_score += source_priority_bonus(candidate.source_kind);
-        candidate.quality_score -= ambiguity_penalty(candidate.source_kind, ambiguity_count, total_tracks);
+        candidate.quality_score -=
+            ambiguity_penalty(candidate.source_kind, ambiguity_count, total_tracks);
     }
 }
 
@@ -173,7 +179,14 @@ fn add_custom_candidate(
         track_name: track.name.clone(),
         track_artist: track.artist.clone(),
         span: 0..custom.answer.len(),
-        quality_score: score_phrase(SourceKind::Custom, &normalize_for_grid(&custom.answer), 1, 0, 0, 1) + 20,
+        quality_score: score_phrase(
+            SourceKind::Custom,
+            &normalize_for_grid(&custom.answer),
+            1,
+            0,
+            0,
+            1,
+        ) + 20,
         custom_clue: Some(custom.clue.clone()),
         ambiguity_count: 1,
     });
@@ -187,6 +200,7 @@ fn add_source_candidates(
     source_kind: SourceKind,
     source_text: &str,
     max_len: usize,
+    max_tokens: usize,
 ) {
     let words = tokenize_words(source_text);
     for start in 0..words.len() {
@@ -200,6 +214,9 @@ fn add_source_candidates(
             }
             end_char = word.end;
             phrase_words.push(word.token);
+            if phrase_words.len() > max_tokens {
+                break;
+            }
             let phrase = phrase_words.join(" ");
             let normalized = normalize_for_grid(&phrase);
             let length = normalized.len();
@@ -220,7 +237,14 @@ fn add_source_candidates(
                 continue;
             }
 
-            let quality_score = score_phrase(source_kind, &normalized, phrase_words.len(), start, end, words.len());
+            let quality_score = score_phrase(
+                source_kind,
+                &normalized,
+                phrase_words.len(),
+                start,
+                end,
+                words.len(),
+            );
             out.push(CandidateAnswer {
                 normalized,
                 original_phrase: phrase,
@@ -248,11 +272,13 @@ fn should_skip_fill_blank_candidate(
         return false;
     }
 
+    if phrase_words.iter().all(|word| is_filler_word(&word.to_ascii_lowercase())) {
+        return true;
+    }
+
     match source_kind {
         SourceKind::Title | SourceKind::Artist | SourceKind::Album => phrase_words.len() > 1,
-        SourceKind::Snippet => phrase_words
-            .iter()
-            .all(|word| is_filler_word(&word.to_ascii_lowercase())),
+        SourceKind::Snippet => false,
         SourceKind::Custom => false,
     }
 }
@@ -263,7 +289,10 @@ fn should_skip_partial_metadata_candidate(
     phrase: &str,
     span: &std::ops::Range<usize>,
 ) -> bool {
-    if !matches!(source_kind, SourceKind::Title | SourceKind::Artist | SourceKind::Album) {
+    if !matches!(
+        source_kind,
+        SourceKind::Title | SourceKind::Artist | SourceKind::Album
+    ) {
         return false;
     }
     if phrase == source_text {
@@ -403,16 +432,23 @@ impl CandidateAnswer {
         match self.source_kind {
             SourceKind::Title => self.blank_clue("Title of this song", "Part of this song title"),
             SourceKind::Artist => self.blank_clue("Song artist", "Part of the artist name"),
-            SourceKind::Album => self.blank_clue("Album containing this song", "Part of the album title"),
+            SourceKind::Album => {
+                self.blank_clue("Album containing this song", "Part of the album title")
+            }
             SourceKind::Snippet => self.blank_clue("Lyric from this song", "Part of this lyric"),
             SourceKind::Custom => "Custom clue".to_string(),
         }
     }
 
     pub fn is_metadata_fill_in_blank(&self) -> bool {
-        matches!(self.source_kind, SourceKind::Title | SourceKind::Artist | SourceKind::Album)
-            && self.original_phrase != self.source_text
-            && has_informative_context(&self.source_text[..self.span.start], &self.source_text[self.span.end..])
+        matches!(
+            self.source_kind,
+            SourceKind::Title | SourceKind::Artist | SourceKind::Album
+        ) && self.original_phrase != self.source_text
+            && has_informative_context(
+                &self.source_text[..self.span.start],
+                &self.source_text[self.span.end..],
+            )
     }
 
     fn blank_clue(&self, whole_fallback: &str, partial_fallback: &str) -> String {
@@ -443,10 +479,10 @@ impl CandidateAnswer {
         }
 
         match self.source_kind {
-            SourceKind::Title => format!("Fill in the song title: {pattern}"),
-            SourceKind::Artist => format!("Fill in the artist name: {pattern}"),
-            SourceKind::Album => format!("Fill in the album name: {pattern}"),
-            SourceKind::Snippet => format!("Fill in the lyric: {pattern}"),
+            SourceKind::Title => format!("Song title: {pattern}"),
+            SourceKind::Artist => format!("Artist name: {pattern}"),
+            SourceKind::Album => format!("Album name: {pattern}"),
+            SourceKind::Snippet => format!("\"{pattern}\""),
             SourceKind::Custom => format!("Fill in the custom answer: {pattern}"),
         }
     }
@@ -494,8 +530,7 @@ fn has_informative_context(prefix: &str, suffix: &str) -> bool {
 fn is_filler_word(word: &str) -> bool {
     matches!(
         word,
-        "a"
-            | "an"
+        "a" | "an"
             | "and"
             | "are"
             | "as"
@@ -567,8 +602,10 @@ mod tests {
 
     #[test]
     fn prefers_title_phrases() {
-        assert!(score_phrase(SourceKind::Title, "ROXANNE", 1, 0, 0, 1)
-            > score_phrase(SourceKind::Snippet, "ROXANNE", 1, 0, 0, 1));
+        assert!(
+            score_phrase(SourceKind::Title, "ROXANNE", 1, 0, 0, 1)
+                > score_phrase(SourceKind::Snippet, "ROXANNE", 1, 0, 0, 1)
+        );
     }
 
     #[test]
@@ -576,6 +613,7 @@ mod tests {
         let input = PuzzleInput {
             width: 15,
             height: 15,
+            max_tokens: 5,
             tracks: vec![Track {
                 name: "Roxanne".to_string(),
                 artist: "The Police".to_string(),
@@ -586,10 +624,54 @@ mod tests {
         };
 
         let candidates = derive_candidates(&input).unwrap();
-        assert!(candidates.iter().any(|candidate| candidate.normalized == "DONTHAVETOPUTON"));
-        assert!(!candidates.iter().any(|candidate| candidate.normalized == "YOU"));
-        assert!(!candidates.iter().any(|candidate| candidate.normalized == "YOURENOT"));
-        assert!(!candidates.iter().any(|candidate| candidate.normalized == "THAVETOPUTON"));
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "DONTHAVETOPUTON")
+        );
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "YOU")
+        );
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "YOURENOT")
+        );
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "THAVETOPUTON")
+        );
+    }
+
+    #[test]
+    fn caps_extracted_source_phrases_by_token_count() {
+        let input = PuzzleInput {
+            width: 18,
+            height: 18,
+            max_tokens: 3,
+            tracks: vec![Track {
+                name: "Roxanne".to_string(),
+                artist: "The Police".to_string(),
+                album: Some("Outlandos d'Amour".to_string()),
+                snippets: vec!["You don't have to put on the red light".to_string()],
+                custom: Vec::new(),
+            }],
+        };
+
+        let candidates = derive_candidates(&input).unwrap();
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "DONTHAVETO")
+        );
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "DONTHAVETOPUT")
+        );
     }
 
     #[test]
@@ -597,6 +679,7 @@ mod tests {
         let input = PuzzleInput {
             width: 12,
             height: 12,
+            max_tokens: 3,
             tracks: vec![Track {
                 name: "The Modern Age".to_string(),
                 artist: "The Strokes".to_string(),
@@ -623,6 +706,7 @@ mod tests {
         let input = PuzzleInput {
             width: 12,
             height: 12,
+            max_tokens: 3,
             tracks: vec![Track {
                 name: "The Modern Age".to_string(),
                 artist: "The Strokes".to_string(),
@@ -654,6 +738,7 @@ mod tests {
         let input = PuzzleInput {
             width: 12,
             height: 12,
+            max_tokens: 3,
             tracks: vec![Track {
                 name: "The Modern Age".to_string(),
                 artist: "The Strokes".to_string(),
@@ -664,18 +749,25 @@ mod tests {
         };
 
         let candidates = derive_candidates(&input).unwrap();
-        assert!(!candidates
-            .iter()
-            .any(|candidate| candidate.normalized == "MODERNAGE"));
-        assert!(!candidates
-            .iter()
-            .any(|candidate| candidate.normalized == "STROKES"));
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "MODERNAGE")
+        );
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "STROKES")
+        );
 
         let album = candidates
             .iter()
             .find(|candidate| candidate.normalized == "IMPRESSIONS")
             .unwrap();
-        assert_eq!(album.clue_text(), "Fill in the album name: First ____ of Earth");
+        assert_eq!(
+            album.clue_text(),
+            "Fill in the album name: First ____ of Earth"
+        );
     }
 
     #[test]
@@ -683,6 +775,7 @@ mod tests {
         let input = PuzzleInput {
             width: 18,
             height: 18,
+            max_tokens: 3,
             tracks: vec![Track {
                 name: "The Adults Are Talking".to_string(),
                 artist: "The Strokes".to_string(),
@@ -693,12 +786,26 @@ mod tests {
         };
 
         let candidates = derive_candidates(&input).unwrap();
-        assert!(candidates.iter().any(|candidate| candidate.normalized == "ADULTS"));
-        assert!(!candidates
-            .iter()
-            .any(|candidate| candidate.normalized == "ADULTSARE"));
-        assert!(candidates.iter().any(|candidate| candidate.normalized == "DONTHAVE"));
-        assert!(!candidates.iter().any(|candidate| candidate.normalized == "YOU"));
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "ADULTS")
+        );
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "ADULTSARE")
+        );
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "DONTHAVE")
+        );
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "YOU")
+        );
     }
 
     #[test]
@@ -706,6 +813,7 @@ mod tests {
         let input = PuzzleInput {
             width: 24,
             height: 24,
+            max_tokens: 3,
             tracks: vec![Track {
                 name: "The Modern Age".to_string(),
                 artist: "The Strokes".to_string(),
@@ -731,6 +839,7 @@ mod tests {
         let input = PuzzleInput {
             width: 16,
             height: 12,
+            max_tokens: 3,
             tracks: vec![Track {
                 name: "You Only Live Once".to_string(),
                 artist: "The Strokes".to_string(),
@@ -741,9 +850,11 @@ mod tests {
         };
 
         let candidates = derive_candidates(&input).unwrap();
-        assert!(!candidates
-            .iter()
-            .any(|candidate| candidate.normalized == "ONLYLIVEONCE"));
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| candidate.normalized == "ONLYLIVEONCE")
+        );
     }
 
     #[test]
@@ -751,6 +862,7 @@ mod tests {
         let input = PuzzleInput {
             width: 12,
             height: 12,
+            max_tokens: 3,
             tracks: vec![
                 Track {
                     name: "Reptilia".to_string(),
@@ -788,6 +900,7 @@ mod tests {
         let input = PuzzleInput {
             width: 12,
             height: 12,
+            max_tokens: 3,
             tracks: vec![
                 Track {
                     name: "Track One".to_string(),
@@ -834,6 +947,7 @@ mod tests {
         let input = PuzzleInput {
             width: 12,
             height: 12,
+            max_tokens: 3,
             tracks: vec![
                 Track {
                     name: "Track One".to_string(),
@@ -885,6 +999,7 @@ mod tests {
         let input = PuzzleInput {
             width: 12,
             height: 12,
+            max_tokens: 3,
             tracks: vec![Track {
                 name: "Reptilia".to_string(),
                 artist: "The Strokes".to_string(),
@@ -895,9 +1010,10 @@ mod tests {
         };
 
         let candidates = derive_candidates(&input).unwrap();
-        assert!(!candidates
-            .iter()
-            .any(|candidate| matches!(candidate.source_kind, SourceKind::Album)));
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| matches!(candidate.source_kind, SourceKind::Album))
+        );
     }
-
 }

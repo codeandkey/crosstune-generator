@@ -48,7 +48,11 @@ struct SearchContext<'a> {
     top_n: usize,
 }
 
-pub fn search_best_n(input: &PuzzleInput, candidates: &[CandidateAnswer], config: &SearchConfig) -> Option<Vec<Solution>> {
+pub fn search_best_n(
+    input: &PuzzleInput,
+    candidates: &[CandidateAnswer],
+    config: &SearchConfig,
+) -> Option<Vec<Solution>> {
     let start = Instant::now();
     let deadline = start + config.time_limit;
     let context = Arc::new(SearchContext {
@@ -103,7 +107,12 @@ pub fn search_best_n(input: &PuzzleInput, candidates: &[CandidateAnswer], config
     )
 }
 
-fn initial_branches(grid: &Grid, candidates: &[CandidateAnswer], branch_limit: usize, seed: u64) -> Vec<Grid> {
+fn initial_branches(
+    grid: &Grid,
+    candidates: &[CandidateAnswer],
+    branch_limit: usize,
+    seed: u64,
+) -> Vec<Grid> {
     let mut roots = Vec::new();
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut anchors: Vec<_> = candidates.iter().take(branch_limit * 3).collect();
@@ -141,7 +150,10 @@ fn dfs(
     next_moves.shuffle(rng);
     next_moves.sort_by(|left, right| right.4.cmp(&left.4));
 
-    for (candidate, x, y, direction, _) in next_moves.into_iter().take(branching_cap(depth, context.branch_limit)) {
+    for (candidate, x, y, direction, _) in next_moves
+        .into_iter()
+        .take(branching_cap(depth, context.branch_limit))
+    {
         if Instant::now() >= context.deadline {
             break;
         }
@@ -252,8 +264,15 @@ fn score_grid(grid: &Grid) -> Score {
             .count(),
         snippet_entries,
         metadata_blank_entries,
-        clue_quality: grid.entries.iter().map(|entry| entry.candidate.quality_score).sum::<i32>()
-            + hub_entry_bonus(hub_entries, grid.entries.iter().map(|entry| entry.crossings).sum())
+        clue_quality: grid
+            .entries
+            .iter()
+            .map(|entry| entry.candidate.quality_score)
+            .sum::<i32>()
+            + hub_entry_bonus(
+                hub_entries,
+                grid.entries.iter().map(|entry| entry.crossings).sum(),
+            )
             - metadata_blank_layout_penalty(grid)
             - snippet_layout_penalty(snippet_entries),
     }
@@ -351,8 +370,8 @@ mod tests {
     };
 
     use super::{
-        SearchConfig, hub_entry_bonus, metadata_blank_layout_penalty, metadata_blank_repeat_penalty,
-        multi_crossing_move_bonus, score_grid, search_best_n,
+        SearchConfig, hub_entry_bonus, metadata_blank_layout_penalty,
+        metadata_blank_repeat_penalty, multi_crossing_move_bonus, score_grid, search_best_n,
     };
 
     #[test]
@@ -360,6 +379,7 @@ mod tests {
         let input = PuzzleInput {
             width: 7,
             height: 7,
+            max_tokens: 3,
             tracks: vec![
                 crate::input::Track {
                     name: "Roxanne".to_string(),
@@ -393,6 +413,7 @@ mod tests {
         let input = PuzzleInput {
             width: 8,
             height: 8,
+            max_tokens: 3,
             tracks: vec![
                 crate::input::Track {
                     name: "Roxanne".to_string(),
@@ -437,6 +458,7 @@ mod tests {
         let input = PuzzleInput {
             width: 12,
             height: 12,
+            max_tokens: 3,
             tracks: vec![
                 crate::input::Track {
                     name: "The Modern Age".to_string(),
@@ -457,11 +479,15 @@ mod tests {
         let candidates = derive_candidates(&input).unwrap();
         let title = candidates
             .iter()
-            .find(|candidate| candidate.track_index == 0 && matches!(candidate.source_kind, SourceKind::Title))
+            .find(|candidate| {
+                candidate.track_index == 0 && matches!(candidate.source_kind, SourceKind::Title)
+            })
             .unwrap();
         let snippet = candidates
             .iter()
-            .find(|candidate| candidate.track_index == 1 && matches!(candidate.source_kind, SourceKind::Snippet))
+            .find(|candidate| {
+                candidate.track_index == 1 && matches!(candidate.source_kind, SourceKind::Snippet)
+            })
             .unwrap();
 
         let title_grid = Grid::new(input.width, input.height)
@@ -488,6 +514,7 @@ mod tests {
         let input = PuzzleInput {
             width: 18,
             height: 18,
+            max_tokens: 3,
             tracks: vec![
                 crate::input::Track {
                     name: "The Modern Age".to_string(),
@@ -524,10 +551,12 @@ mod tests {
         assert!(metadata_blank_repeat_penalty(second_title_blank, &grid) > 0);
         assert!(metadata_blank_layout_penalty(&grid) == 0);
 
-        let (x, y, direction, _) = grid.placements_for(second_title_blank).into_iter().next().unwrap();
-        let expanded = grid
-            .place(second_title_blank, x, y, direction)
+        let (x, y, direction, _) = grid
+            .placements_for(second_title_blank)
+            .into_iter()
+            .next()
             .unwrap();
+        let expanded = grid.place(second_title_blank, x, y, direction).unwrap();
         assert!(metadata_blank_layout_penalty(&expanded) > 0);
         assert_eq!(score_grid(&expanded).metadata_blank_entries, 2);
     }
