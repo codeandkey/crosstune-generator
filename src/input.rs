@@ -12,7 +12,7 @@ pub struct PuzzleInput {
 pub struct Track {
     pub name: String,
     pub artist: String,
-    pub album: String,
+    pub album: Option<String>,
     #[serde(default)]
     pub snippets: Vec<String>,
     #[serde(default)]
@@ -43,8 +43,10 @@ impl PuzzleInput {
             if track.artist.trim().is_empty() {
                 bail!("{label} is missing an artist");
             }
-            if track.album.trim().is_empty() {
-                bail!("{label} is missing an album");
+            if let Some(album) = &track.album
+                && album.trim().is_empty()
+            {
+                bail!("{label} contains an empty album");
             }
             for snippet in &track.snippets {
                 if snippet.trim().is_empty() {
@@ -62,5 +64,26 @@ impl PuzzleInput {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PuzzleInput;
+
+    #[test]
+    fn allows_null_album_in_yaml_input() {
+        let yaml = r#"
+width: 5
+height: 5
+tracks:
+  - name: Reptilia
+    artist: The Strokes
+    album: null
+"#;
+
+        let input: PuzzleInput = serde_yaml::from_str(yaml).unwrap();
+        input.validate().unwrap();
+        assert!(input.tracks[0].album.is_none());
     }
 }

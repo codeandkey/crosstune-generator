@@ -58,15 +58,17 @@ pub fn derive_candidates(input: &PuzzleInput) -> Result<Vec<CandidateAnswer>> {
             &track.artist,
             max_len,
         );
-        add_source_candidates(
-            &mut out,
-            &mut seen,
-            track_index,
-            track,
-            SourceKind::Album,
-            &track.album,
-            max_len,
-        );
+        if let Some(album) = &track.album {
+            add_source_candidates(
+                &mut out,
+                &mut seen,
+                track_index,
+                track,
+                SourceKind::Album,
+                album,
+                max_len,
+            );
+        }
         for snippet in &track.snippets {
             add_source_candidates(
                 &mut out,
@@ -577,7 +579,7 @@ mod tests {
             tracks: vec![Track {
                 name: "Roxanne".to_string(),
                 artist: "The Police".to_string(),
-                album: "Outlandos d'Amour".to_string(),
+                album: Some("Outlandos d'Amour".to_string()),
                 snippets: vec!["You don't have to put on the red light".to_string()],
                 custom: Vec::new(),
             }],
@@ -598,7 +600,7 @@ mod tests {
             tracks: vec![Track {
                 name: "The Modern Age".to_string(),
                 artist: "The Strokes".to_string(),
-                album: "Is This It".to_string(),
+                album: Some("Is This It".to_string()),
                 snippets: vec![],
                 custom: vec![crate::input::CustomClue {
                     answer: "Modern".to_string(),
@@ -624,7 +626,7 @@ mod tests {
             tracks: vec![Track {
                 name: "The Modern Age".to_string(),
                 artist: "The Strokes".to_string(),
-                album: "Is This It".to_string(),
+                album: Some("Is This It".to_string()),
                 snippets: vec![],
                 custom: vec![crate::input::CustomClue {
                     answer: "Modern".to_string(),
@@ -655,7 +657,7 @@ mod tests {
             tracks: vec![Track {
                 name: "The Modern Age".to_string(),
                 artist: "The Strokes".to_string(),
-                album: "First Impressions of Earth".to_string(),
+                album: Some("First Impressions of Earth".to_string()),
                 snippets: vec![],
                 custom: Vec::new(),
             }],
@@ -684,7 +686,7 @@ mod tests {
             tracks: vec![Track {
                 name: "The Adults Are Talking".to_string(),
                 artist: "The Strokes".to_string(),
-                album: "First Impressions of Earth".to_string(),
+                album: Some("First Impressions of Earth".to_string()),
                 snippets: vec!["You don't have to put on the red light".to_string()],
                 custom: Vec::new(),
             }],
@@ -707,7 +709,7 @@ mod tests {
             tracks: vec![Track {
                 name: "The Modern Age".to_string(),
                 artist: "The Strokes".to_string(),
-                album: "Is This It".to_string(),
+                album: Some("Is This It".to_string()),
                 snippets: vec!["No time to feel the breeze, I took too many varieties".to_string()],
                 custom: Vec::new(),
             }],
@@ -732,7 +734,7 @@ mod tests {
             tracks: vec![Track {
                 name: "You Only Live Once".to_string(),
                 artist: "The Strokes".to_string(),
-                album: "First Impressions of Earth".to_string(),
+                album: Some("First Impressions of Earth".to_string()),
                 snippets: vec![],
                 custom: Vec::new(),
             }],
@@ -753,14 +755,14 @@ mod tests {
                 Track {
                     name: "Reptilia".to_string(),
                     artist: "The Strokes".to_string(),
-                    album: "Room On Fire".to_string(),
+                    album: Some("Room On Fire".to_string()),
                     snippets: vec![],
                     custom: Vec::new(),
                 },
                 Track {
                     name: "Someday".to_string(),
                     artist: "The Strokes".to_string(),
-                    album: "Is This It".to_string(),
+                    album: Some("Is This It".to_string()),
                     snippets: vec![],
                     custom: Vec::new(),
                 },
@@ -790,28 +792,28 @@ mod tests {
                 Track {
                     name: "Track One".to_string(),
                     artist: "Artist A".to_string(),
-                    album: "Shared Album".to_string(),
+                    album: Some("Shared Album".to_string()),
                     snippets: vec![],
                     custom: Vec::new(),
                 },
                 Track {
                     name: "Track Two".to_string(),
                     artist: "Artist B".to_string(),
-                    album: "Shared Album".to_string(),
+                    album: Some("Shared Album".to_string()),
                     snippets: vec![],
                     custom: Vec::new(),
                 },
                 Track {
                     name: "Track Three".to_string(),
                     artist: "Artist C".to_string(),
-                    album: "Different Album".to_string(),
+                    album: Some("Different Album".to_string()),
                     snippets: vec![],
                     custom: Vec::new(),
                 },
                 Track {
                     name: "Track Four".to_string(),
                     artist: "Artist D".to_string(),
-                    album: "Another Album".to_string(),
+                    album: Some("Another Album".to_string()),
                     snippets: vec![],
                     custom: Vec::new(),
                 },
@@ -836,28 +838,28 @@ mod tests {
                 Track {
                     name: "Track One".to_string(),
                     artist: "The Strokes".to_string(),
-                    album: "Album One".to_string(),
+                    album: Some("Album One".to_string()),
                     snippets: vec![],
                     custom: Vec::new(),
                 },
                 Track {
                     name: "Track Two".to_string(),
                     artist: "The Strokes".to_string(),
-                    album: "Album Two".to_string(),
+                    album: Some("Album Two".to_string()),
                     snippets: vec![],
                     custom: Vec::new(),
                 },
                 Track {
                     name: "Track Three".to_string(),
                     artist: "The Strokes".to_string(),
-                    album: "Album Three".to_string(),
+                    album: Some("Album Three".to_string()),
                     snippets: vec![],
                     custom: Vec::new(),
                 },
                 Track {
                     name: "Track Four".to_string(),
                     artist: "The Strokes".to_string(),
-                    album: "Album Four".to_string(),
+                    album: Some("Album Four".to_string()),
                     snippets: vec![],
                     custom: Vec::new(),
                 },
@@ -876,6 +878,26 @@ mod tests {
 
         assert_eq!(artist.ambiguity_count, 4);
         assert!(artist.quality_score < title.quality_score);
+    }
+
+    #[test]
+    fn skips_album_candidates_when_album_is_null() {
+        let input = PuzzleInput {
+            width: 12,
+            height: 12,
+            tracks: vec![Track {
+                name: "Reptilia".to_string(),
+                artist: "The Strokes".to_string(),
+                album: None,
+                snippets: vec![],
+                custom: Vec::new(),
+            }],
+        };
+
+        let candidates = derive_candidates(&input).unwrap();
+        assert!(!candidates
+            .iter()
+            .any(|candidate| matches!(candidate.source_kind, SourceKind::Album)));
     }
 
 }
